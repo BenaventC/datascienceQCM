@@ -53,6 +53,16 @@ def get_config_value(key, default=""):
     return default
 
 
+def get_service_account_info_from_secrets():
+    try:
+        info = st.secrets.get("gcp_service_account")
+        if info and isinstance(info, dict):
+            return dict(info)
+    except Exception:
+        pass
+    return None
+
+
 def load_google_drive_clients():
     try:
         oauth2_module = importlib.import_module("google.oauth2")
@@ -113,17 +123,24 @@ def sync_results_to_google_drive(local_file_path):
 
     service_account_path = get_config_value("GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE", "").strip()
     service_account_json = get_config_value("GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON", "").strip()
+    service_account_info = get_service_account_info_from_secrets()
     folder_id = get_config_value("GOOGLE_DRIVE_FOLDER_ID", "").strip()
     drive_filename = get_config_value("GOOGLE_DRIVE_FILE_NAME", RESULTS_FILE).strip() or RESULTS_FILE
 
-    if not service_account_json and (not service_account_path or not os.path.exists(service_account_path)):
+    has_local_file = service_account_path and os.path.exists(service_account_path)
+    if not service_account_json and not service_account_info and not has_local_file:
         return (
             "Synchronisation Google Drive inactive: renseignez GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON "
-            "(Streamlit Cloud) ou GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE (local)."
+            "ou [gcp_service_account] (Streamlit Cloud) ou GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE (local)."
         )
 
     try:
-        if service_account_json:
+        if service_account_info:
+            creds = service_account.Credentials.from_service_account_info(
+                service_account_info,
+                scopes=GDRIVE_SCOPES,
+            )
+        elif service_account_json:
             creds_info = json.loads(service_account_json)
             creds = service_account.Credentials.from_service_account_info(
                 creds_info,
