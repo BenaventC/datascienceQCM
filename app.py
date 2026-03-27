@@ -6,6 +6,7 @@ import re
 import time
 import json
 import importlib
+from urllib import request, error
 from datetime import datetime
 
 try:
@@ -18,7 +19,7 @@ st.set_page_config(page_title="Data Sciences Knowledge Test (DSKT)", page_icon="
 
 # Fichiers
 QUESTIONS_FILE = "questions.csv"
-RESULTS_FILE = "examen_resultat.csv"
+RESULTS_FILE_NAME = "examen_resultat.csv"
 DIFFICULTY_RANK = {
     "facile": 1,
     "intermédiaire": 2,
@@ -53,6 +54,18 @@ def get_config_value(key, default=""):
     return default
 
 
+def get_results_file_path():
+    # Permet d'ecrire directement dans un dossier synchronise (ex: Google Drive Desktop).
+    output_dir = get_config_value("LOCAL_RESULTS_DIR", "").strip()
+    file_name = get_config_value("LOCAL_RESULTS_FILE_NAME", RESULTS_FILE_NAME).strip() or RESULTS_FILE_NAME
+
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
+        return os.path.join(output_dir, file_name)
+
+    return file_name
+
+
 def get_service_account_info_from_secrets():
     try:
         info = st.secrets.get("gcp_service_account")
@@ -85,6 +98,7 @@ def is_valid_dauphine_email(email):
 
 
 def save_result(name, email, score, total):
+    results_file = get_results_file_path()
     success_rate = round((score / total) * 100, 2) if total else 0.0
     date_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     new_result = pd.DataFrame([{
@@ -96,20 +110,57 @@ def save_result(name, email, score, total):
         "Date": date_str
     }])
 
-    if not os.path.exists(RESULTS_FILE):
-        new_result.to_csv(RESULTS_FILE, index=False)
+    if not os.path.exists(results_file):
+        new_result.to_csv(results_file, index=False)
     else:
-        existing = pd.read_csv(RESULTS_FILE)
+        existing = pd.read_csv(results_file)
         if "Taux_reussite_%" not in existing.columns and {"Score", "Total"}.issubset(existing.columns):
             existing["Taux_reussite_%"] = (
                 (existing["Score"] / existing["Total"].replace(0, pd.NA)) * 100
             ).round(2).fillna(0.0)
         combined = pd.concat([existing, new_result], ignore_index=True, sort=False)
-        combined.to_csv(RESULTS_FILE, index=False)
+        combined.to_csv(results_file, index=False)
 
-    local_msg = "Vos resultats ont ete enregistres dans 'examen_resultat.csv'."
-    drive_msg = sync_results_to_google_drive(RESULTS_FILE)
-    return local_msg, drive_msg
+    payload = {
+        "Nom": name,
+        "Email": email,
+        "Score": score,
+        "Total": total,
+        "Taux_reussite_%": success_rate,
+        "Date": date_str,
+    }
+
+    local_msg = f"Vos resultats ont ete enregistres dans '{results_file}'."
+    drive_msg = sync_results_to_google_drive(results_file)
+    sheets_msg = sync_result_to_google_sheets_webhook(payload)
+    return local_msg, drive_msg, sheets_msg
+
+
+def sync_result_to_google_sheets_webhook(payload):
+    enabled = get_config_value("GOOGLE_SHEETS_WEBHOOK_ENABLED", "false").strip().lower() == "true"
+    if not enabled:
+        return None
+
+    webhook_url = get_config_value("GOOGLE_SHEETS_WEBHOOK_URL", "").strip()
+    if not webhook_url:
+        return "Synchronisation Google Sheets inactive: GOOGLE_SHEETS_WEBHOOK_URL manquant."
+
+    try:
+        body = json.dumps(payload).encode("utf-8")
+        req = request.Request(
+            webhook_url,
+            data=body,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with request.urlopen(req, timeout=15) as resp:
+            if 200 <= resp.status < 300:
+                return "Resultats synchronises sur Google Sheets (Apps Script)."
+            return f"Echec de synchronisation Google Sheets: statut HTTP {resp.status}."
+    except error.HTTPError as exc:
+        return f"Echec de synchronisation Google Sheets: HTTP {exc.code}."
+    except Exception as exc:
+        return f"Echec de synchronisation Google Sheets: {exc}"
 
 
 def sync_results_to_google_drive(local_file_path):
@@ -125,7 +176,9 @@ def sync_results_to_google_drive(local_file_path):
     service_account_json = get_config_value("GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON", "").strip()
     service_account_info = get_service_account_info_from_secrets()
     folder_id = get_config_value("GOOGLE_DRIVE_FOLDER_ID", "").strip()
-    drive_filename = get_config_value("GOOGLE_DRIVE_FILE_NAME", RESULTS_FILE).strip() or RESULTS_FILE
+    drive_filename = (
+        get_config_value("GOOGLE_DRIVE_FILE_NAME", RESULTS_FILE_NAME).strip() or RESULTS_FILE_NAME
+    )
 
     has_local_file = service_account_path and os.path.exists(service_account_path)
     if not service_account_json and not service_account_info and not has_local_file:
@@ -479,7 +532,7 @@ def main():
             )
 
         if not st.session_state.result_saved:
-            local_msg, drive_msg = save_result(
+            local_msg, drive_msg, sheets_msg = save_result(
                 st.session_state.candidate_name,
                 st.session_state.candidate_email,
                 score,
@@ -489,6 +542,8 @@ def main():
             st.info(local_msg)
             if drive_msg:
                 st.info(drive_msg)
+            if sheets_msg:
+                st.info(sheets_msg)
 
         if st.button("Recommencer le test", type="primary", use_container_width=True):
             reset_quiz_state()
