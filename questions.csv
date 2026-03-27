@@ -1,0 +1,16 @@
+question,option_a,option_b,option_c,option_d,option_e,correct_option
+"Quelle est la principale bibliothèque pour la manipulation de données en Python ?",Pandas,Matplotlib,Scikit-learn,Seaborn,TensorFlow,A
+"Quel algorithme est couramment utilisé pour la classification supervisée ?",K-Means,Linear Regression,Random Forest,PCA,Apriori,C
+"Que signifie l'acronyme EDA ?",Exploratory Data Analysis,Estimated Data Array,Every Day Analysis,External Data Access,Extended Data Architecture,A
+"Laquelle de ces méthodes est une technique de réduction de dimension ?",Linear Regression,Logistic Regression,PCA,K-Nearest Neighbors,Decision Tree,C
+"Quel outil est couramment utilisé pour l'entraînement de réseaux de neurones ?",Pandas,TensorFlow,Requests,BeautifulSoup,NumPy,B
+"A quoi sert un embedding de mots ?",Representer des mots en vecteurs numeriques,dessiner des graphiques en 3D,compresser des images,chiffrer des donnees,nettoyer des doublons,A
+"Quelle methode est principalement utilisee pour projeter des embeddings en 2D pour visualisation ?",One Hot Encoding,t-SNE,MinMax Scaling,Bagging,Naive Bayes,B
+"Quel est l'objectif principal de la tokenisation en NLP ?",Calculer la variance d'un dataset,Decouper un texte en unites exploitables,Traduire automatiquement un texte,Mesurer la latence d'une API,Generer un graphique,B
+"Que signifie POS tagging en traitement du langage ?",Prediction of Sequences,Part of Speech tagging,Probability of Sampling,Point of Similarity,Parsing of Sentences,B
+"Dans un systeme NER quelle entite pourrait etre detectee ?",valeur manquante,nombre de clusters,personne,coefficient de correlation,matrice de confusion,C
+"Quelle metrique est frequemment utilisee pour evaluer un modele de classification binaire ?",RMSE,Accuracy,MAE,R2,Silhouette score,B
+"Quel modele de langage est de type encodeur bidirectionnel ?",GPT,LSTM classique,ARIMA,BERT,KNN,D
+"Quel format de donnees est le plus courant pour stocker des textes annotes en NER ?",PNG,CSV,XLSX,ZIP,JSONL,E
+"Quel pretraitement est souvent utile avant un modele NLP classique ?",normalisation de casse et suppression de ponctuation,augmentation de resolution image,tri des colonnes aleatoire,compilation en bytecode,chiffrement AES,A
+"Quelle technique permet de representer un document entier a partir de frequences de termes ?",TF-IDF,Dropout,Batch Normalization,Early Stopping,Backpropagation,A
