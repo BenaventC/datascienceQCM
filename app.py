@@ -4,16 +4,9 @@ import os
 import random
 import re
 import time
+import json
+import importlib
 from datetime import datetime
-
-try:
-    from google.oauth2 import service_account
-    from googleapiclient.discovery import build
-    from googleapiclient.http import MediaFileUpload
-except ImportError:
-    service_account = None
-    build = None
-    MediaFileUpload = None
 
 try:
     from streamlit_autorefresh import st_autorefresh
@@ -45,6 +38,29 @@ WARMUP_QUESTION = {
     "correct_option": "A",
 }
 GDRIVE_SCOPES = ["https://www.googleapis.com/auth/drive.file"]
+
+
+def get_config_value(key, default=""):
+    value = os.getenv(key)
+    if value not in (None, ""):
+        return value
+    try:
+        secret_value = st.secrets.get(key)
+        if secret_value is not None:
+            return str(secret_value)
+    except Exception:
+        pass
+    return default
+
+
+def load_google_drive_clients():
+    try:
+        oauth2_module = importlib.import_module("google.oauth2")
+        discovery_module = importlib.import_module("googleapiclient.discovery")
+        http_module = importlib.import_module("googleapiclient.http")
+        return oauth2_module.service_account, discovery_module.build, http_module.MediaFileUpload
+    except Exception:
+        return None, None, None
 
 def load_questions():
     if os.path.exists(QUESTIONS_FILE):
@@ -87,30 +103,39 @@ def save_result(name, email, score, total):
 
 
 def sync_results_to_google_drive(local_file_path):
-    enabled = os.getenv("GOOGLE_DRIVE_ENABLED", "false").strip().lower() == "true"
+    enabled = get_config_value("GOOGLE_DRIVE_ENABLED", "false").strip().lower() == "true"
     if not enabled:
         return None
 
-    if service_account is None or build is None or MediaFileUpload is None:
+    service_account, build, media_file_upload = load_google_drive_clients()
+    if service_account is None or build is None or media_file_upload is None:
         return "Synchronisation Google Drive inactive: dependances Google manquantes."
 
-    service_account_path = os.getenv("GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE", "").strip()
-    folder_id = os.getenv("GOOGLE_DRIVE_FOLDER_ID", "").strip()
-    drive_filename = os.getenv("GOOGLE_DRIVE_FILE_NAME", RESULTS_FILE).strip() or RESULTS_FILE
+    service_account_path = get_config_value("GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE", "").strip()
+    service_account_json = get_config_value("GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON", "").strip()
+    folder_id = get_config_value("GOOGLE_DRIVE_FOLDER_ID", "").strip()
+    drive_filename = get_config_value("GOOGLE_DRIVE_FILE_NAME", RESULTS_FILE).strip() or RESULTS_FILE
 
-    if not service_account_path or not os.path.exists(service_account_path):
+    if not service_account_json and (not service_account_path or not os.path.exists(service_account_path)):
         return (
-            "Synchronisation Google Drive inactive: renseignez GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE "
-            "avec le chemin d'un fichier de credentials valide."
+            "Synchronisation Google Drive inactive: renseignez GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON "
+            "(Streamlit Cloud) ou GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE (local)."
         )
 
     try:
-        creds = service_account.Credentials.from_service_account_file(
-            service_account_path,
-            scopes=GDRIVE_SCOPES,
-        )
+        if service_account_json:
+            creds_info = json.loads(service_account_json)
+            creds = service_account.Credentials.from_service_account_info(
+                creds_info,
+                scopes=GDRIVE_SCOPES,
+            )
+        else:
+            creds = service_account.Credentials.from_service_account_file(
+                service_account_path,
+                scopes=GDRIVE_SCOPES,
+            )
         drive = build("drive", "v3", credentials=creds)
-        media = MediaFileUpload(local_file_path, mimetype="text/csv", resumable=False)
+        media = media_file_upload(local_file_path, mimetype="text/csv", resumable=False)
 
         if folder_id:
             query = (
