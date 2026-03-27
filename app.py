@@ -4,9 +4,6 @@ import os
 import random
 import re
 import time
-import json
-import importlib
-from urllib import request, error
 from datetime import datetime
 
 try:
@@ -38,7 +35,6 @@ WARMUP_QUESTION = {
     "option_e": "Le carré de l'écart-type",
     "correct_option": "A",
 }
-GDRIVE_SCOPES = ["https://www.googleapis.com/auth/drive.file"]
 
 
 def get_config_value(key, default=""):
@@ -65,25 +61,6 @@ def get_results_file_path():
 
     return file_name
 
-
-def get_service_account_info_from_secrets():
-    try:
-        info = st.secrets.get("gcp_service_account")
-        if info and isinstance(info, dict):
-            return dict(info)
-    except Exception:
-        pass
-    return None
-
-
-def load_google_drive_clients():
-    try:
-        oauth2_module = importlib.import_module("google.oauth2")
-        discovery_module = importlib.import_module("googleapiclient.discovery")
-        http_module = importlib.import_module("googleapiclient.http")
-        return oauth2_module.service_account, discovery_module.build, http_module.MediaFileUpload
-    except Exception:
-        return None, None, None
 
 def load_questions():
     if os.path.exists(QUESTIONS_FILE):
@@ -131,108 +108,7 @@ def save_result(name, email, score, total):
     }
 
     local_msg = f"Vos resultats ont ete enregistres dans '{results_file}'."
-    drive_msg = sync_results_to_google_drive(results_file)
-    sheets_msg = sync_result_to_google_sheets_webhook(payload)
-    return local_msg, drive_msg, sheets_msg
-
-
-def sync_result_to_google_sheets_webhook(payload):
-    enabled = get_config_value("GOOGLE_SHEETS_WEBHOOK_ENABLED", "false").strip().lower() == "true"
-    if not enabled:
-        return None
-
-    webhook_url = get_config_value("GOOGLE_SHEETS_WEBHOOK_URL", "").strip()
-    if not webhook_url:
-        return "Synchronisation Google Sheets inactive: GOOGLE_SHEETS_WEBHOOK_URL manquant."
-
-    try:
-        body = json.dumps(payload).encode("utf-8")
-        req = request.Request(
-            webhook_url,
-            data=body,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        with request.urlopen(req, timeout=15) as resp:
-            if 200 <= resp.status < 300:
-                return "Resultats synchronises sur Google Sheets (Apps Script)."
-            return f"Echec de synchronisation Google Sheets: statut HTTP {resp.status}."
-    except error.HTTPError as exc:
-        return f"Echec de synchronisation Google Sheets: HTTP {exc.code}."
-    except Exception as exc:
-        return f"Echec de synchronisation Google Sheets: {exc}"
-
-
-def sync_results_to_google_drive(local_file_path):
-    enabled = get_config_value("GOOGLE_DRIVE_ENABLED", "false").strip().lower() == "true"
-    if not enabled:
-        return None
-
-    service_account, build, media_file_upload = load_google_drive_clients()
-    if service_account is None or build is None or media_file_upload is None:
-        return "Synchronisation Google Drive inactive: dependances Google manquantes."
-
-    service_account_path = get_config_value("GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE", "").strip()
-    service_account_json = get_config_value("GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON", "").strip()
-    service_account_info = get_service_account_info_from_secrets()
-    folder_id = get_config_value("GOOGLE_DRIVE_FOLDER_ID", "").strip()
-    drive_filename = (
-        get_config_value("GOOGLE_DRIVE_FILE_NAME", RESULTS_FILE_NAME).strip() or RESULTS_FILE_NAME
-    )
-
-    has_local_file = service_account_path and os.path.exists(service_account_path)
-    if not service_account_json and not service_account_info and not has_local_file:
-        return (
-            "Synchronisation Google Drive inactive: renseignez GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON "
-            "ou [gcp_service_account] (Streamlit Cloud) ou GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE (local)."
-        )
-
-    try:
-        if service_account_info:
-            creds = service_account.Credentials.from_service_account_info(
-                service_account_info,
-                scopes=GDRIVE_SCOPES,
-            )
-        elif service_account_json:
-            creds_info = json.loads(service_account_json)
-            creds = service_account.Credentials.from_service_account_info(
-                creds_info,
-                scopes=GDRIVE_SCOPES,
-            )
-        else:
-            creds = service_account.Credentials.from_service_account_file(
-                service_account_path,
-                scopes=GDRIVE_SCOPES,
-            )
-        drive = build("drive", "v3", credentials=creds)
-        media = media_file_upload(local_file_path, mimetype="text/csv", resumable=False)
-
-        if folder_id:
-            query = (
-                f"name = '{drive_filename}' and '{folder_id}' in parents and trashed = false"
-            )
-        else:
-            query = f"name = '{drive_filename}' and trashed = false"
-
-        existing = (
-            drive.files()
-            .list(q=query, spaces="drive", fields="files(id,name)", pageSize=1)
-            .execute()
-            .get("files", [])
-        )
-
-        if existing:
-            file_id = existing[0]["id"]
-            drive.files().update(fileId=file_id, media_body=media).execute()
-            return f"Resultats synchronises sur Google Drive (fichier mis a jour: {drive_filename})."
-
-        metadata = {"name": drive_filename}
-        if folder_id:
-            metadata["parents"] = [folder_id]
-        drive.files().create(body=metadata, media_body=media, fields="id").execute()
-        return f"Resultats synchronises sur Google Drive (nouveau fichier: {drive_filename})."
-    except Exception as exc:
-        return f"Echec de synchronisation Google Drive: {exc}"
+    return local_msg
 
 
 def parse_correct_letters(raw_value):
@@ -532,7 +408,7 @@ def main():
             )
 
         if not st.session_state.result_saved:
-            local_msg, drive_msg, sheets_msg = save_result(
+            local_msg = save_result(
                 st.session_state.candidate_name,
                 st.session_state.candidate_email,
                 score,
@@ -540,10 +416,6 @@ def main():
             )
             st.session_state.result_saved = True
             st.info(local_msg)
-            if drive_msg:
-                st.info(drive_msg)
-            if sheets_msg:
-                st.info(sheets_msg)
 
         if st.button("Recommencer le test", type="primary", use_container_width=True):
             reset_quiz_state()
