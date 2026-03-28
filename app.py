@@ -549,9 +549,11 @@ def main():
 
     # Formulaire d'identification
     st.markdown("**Votre nom**")
-    user_name = st.text_input("Entrez votre nom complet :")
+    st.caption("Entrez votre nom complet :")
+    user_name = st.text_input("Entrez votre nom complet :", label_visibility="collapsed")
     st.markdown("**Votre mail**")
-    user_email = st.text_input("Entrez votre adresse email (optionnel) :")
+    st.caption("Entrez votre adresse email (optionnel) :")
+    user_email = st.text_input("Entrez votre adresse email (optionnel) :", label_visibility="collapsed")
     is_email_ok = True
     if user_email:
         is_email_ok = is_valid_dauphine_email(user_email)
