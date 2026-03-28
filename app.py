@@ -20,6 +20,9 @@ st.set_page_config(page_title="Data Sciences Knowledge Test (DSKT)", page_icon="
 # Fichiers
 QUESTIONS_FILE = "questions.csv"
 RESULTS_FILE_NAME = "examen_resultat.csv"
+TOTAL_QUESTION_COUNT = 30
+WARMUP_QUESTION_COUNT = 1
+RANDOM_QUESTION_COUNT = TOTAL_QUESTION_COUNT - WARMUP_QUESTION_COUNT
 DIFFICULTY_RANK = {
     "facile": 1,
     "intermédiaire": 2,
@@ -215,6 +218,36 @@ def get_correct_texts(row):
     return [letter_to_text[l] for l in letters if l in letter_to_text]
 
 
+def calculate_question_points(correct_texts, selected_texts):
+    if not correct_texts:
+        return 0.0
+
+    correct_set = set(correct_texts)
+    selected_set = set(selected_texts)
+
+    # Cas 2 bonnes réponses attendues
+    if len(correct_texts) == 2:
+        # Si une réponse sélectionnée est fausse, la question vaut 0.
+        if any(answer not in correct_set for answer in selected_texts):
+            return 0.0
+
+        # Les deux bonnes réponses ont été cochées.
+        if len(selected_set) == 2 and selected_set == correct_set:
+            return 1.5
+
+        # Une seule bonne réponse cochée.
+        if len(selected_set) == 1 and next(iter(selected_set)) in correct_set:
+            return 0.5
+
+        return 0.0
+
+    # Cas 1 bonne réponse attendue
+    if len(correct_texts) == 1:
+        return 1.0 if len(selected_set) == 1 and next(iter(selected_set)) in correct_set else 0.0
+
+    return 0.0
+
+
 def validate_correct_options(df):
     invalid_rows = []
     for idx, row in df.iterrows():
@@ -243,17 +276,25 @@ def validate_difficulty_values(df):
 
 
 def filter_questions_by_level(df, selected_level):
-    selected_rank = DIFFICULTY_RANK[normalize_difficulty(selected_level)]
+    normalized_selected = normalize_difficulty(selected_level)
+    allowed_ranks_by_level = {
+        "facile": {DIFFICULTY_RANK["facile"]},
+        "intermédiaire": {DIFFICULTY_RANK["facile"], DIFFICULTY_RANK["intermédiaire"]},
+        "intermediaire": {DIFFICULTY_RANK["facile"], DIFFICULTY_RANK["intermédiaire"]},
+        "avancé": {DIFFICULTY_RANK["intermédiaire"], DIFFICULTY_RANK["avancé"]},
+        "avance": {DIFFICULTY_RANK["intermédiaire"], DIFFICULTY_RANK["avancé"]},
+    }
+    allowed_ranks = allowed_ranks_by_level.get(normalized_selected, set())
 
     def is_eligible(level):
         rank = DIFFICULTY_RANK.get(normalize_difficulty(level))
-        return rank is not None and rank <= selected_rank
+        return rank in allowed_ranks
 
     return df[df["difficulte"].apply(is_eligible)]
 
 
 def build_quiz_dataframe(eligible_df):
-    sampled_df = eligible_df.sample(n=20).reset_index(drop=True)
+    sampled_df = eligible_df.sample(n=RANDOM_QUESTION_COUNT).reset_index(drop=True)
     warmup_df = pd.DataFrame([WARMUP_QUESTION])
     return pd.concat([warmup_df, sampled_df], ignore_index=True)
 
@@ -486,8 +527,8 @@ def main():
                 Attention: vous aurez {selected_time_limit} secondes par question pour le niveau {selected_level}.
                 Si vous ne validez pas votre reponse a temps,
                 la machine choisira aleatoirement a votre place. Vous pouvez selectionner 1 ou 2 reponses.
-                Le test contient 20 questions tirees au sort selon votre niveau,
-                plus 1 question d'echauffement fixe.
+                Le test contient {TOTAL_QUESTION_COUNT} questions au total,
+                incluant 1 question d'echauffement fixe et {RANDOM_QUESTION_COUNT} questions tirees au sort.
             </div>
             """,
             unsafe_allow_html=True,
@@ -496,7 +537,7 @@ def main():
             f"Base d'echantillonnage disponible pour le niveau {selected_level}: {eligible_count} questions"
         )
 
-        can_start = bool(user_name and (not user_email or is_email_ok) and eligible_count >= 20)
+        can_start = bool(user_name and (not user_email or is_email_ok) and eligible_count >= RANDOM_QUESTION_COUNT)
         st.button(
             "Start / Commencer le QCM",
             type="primary",
@@ -507,10 +548,10 @@ def main():
 
         if st.session_state.start_quiz:
             eligible_df = filter_questions_by_level(df, selected_level)
-            if len(eligible_df) < 20:
+            if len(eligible_df) < RANDOM_QUESTION_COUNT:
                 st.error(
                     "Pas assez de questions pour ce niveau. "
-                    f"Questions disponibles: {len(eligible_df)} / 20 requises."
+                    f"Questions disponibles: {len(eligible_df)} / {RANDOM_QUESTION_COUNT} requises."
                 )
                 return
 
@@ -533,8 +574,10 @@ def main():
             st.info("Saisissez votre nom pour activer le bouton Start.")
         elif user_email and not is_email_ok:
             st.info("Saisissez un email valide (exemple: nom@domaine.ext) pour activer le bouton Start.")
-        elif eligible_count < 20:
-            st.info("Pas assez de questions disponibles pour ce niveau (minimum 20 requises).")
+        elif eligible_count < RANDOM_QUESTION_COUNT:
+            st.info(
+                f"Pas assez de questions disponibles pour ce niveau (minimum {RANDOM_QUESTION_COUNT} requises)."
+            )
         return
 
     quiz_df = st.session_state.quiz_df if st.session_state.quiz_df is not None else df
@@ -545,32 +588,7 @@ def main():
         for index, row in quiz_df.iterrows():
             correct_texts = get_correct_texts(row)
             selected_texts = st.session_state.answers.get(index, [])
-            if correct_texts:
-                if len(correct_texts) == 2:
-                    # Deux bonnes réponses possibles
-                    if len(selected_texts) == 2:
-                        if set(selected_texts) == set(correct_texts):
-                            score += 1.5
-                        elif (selected_texts[0] in correct_texts and selected_texts[1] in correct_texts):
-                            # Cas rare, mais déjà couvert par le set equality
-                            score += 1.5
-                        elif (selected_texts[0] in correct_texts or selected_texts[1] in correct_texts):
-                            score += 0.5
-                        else:
-                            score += 0.0
-                    elif len(selected_texts) == 1:
-                        if selected_texts[0] in correct_texts:
-                            score += 0.5
-                        else:
-                            score += 0.0
-                    else:
-                        score += 0.0
-                else:
-                    # Une seule bonne réponse
-                    if len(selected_texts) == 1 and selected_texts[0] in correct_texts:
-                        score += 1.0
-                    else:
-                        score += 0.0
+            score += calculate_question_points(correct_texts, selected_texts)
 
         normalized_score = (score / total_points) * 100 if total_points else 0.0
         st.success(f"Termine ! Score normalise: {normalized_score:.2f}%")
