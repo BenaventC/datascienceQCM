@@ -350,6 +350,8 @@ def reset_quiz_state():
     st.session_state.result_saved = False
     st.session_state.selected_level = "facile"
     st.session_state.quiz_df = None
+    st.session_state.showing_answer_for = None
+    st.session_state.answer_display_start_time = None
 
 def main():
     # --- Bouton de test Google Sheets supprimé ---
@@ -654,6 +656,27 @@ def main():
     index = st.session_state.current_question
     row = quiz_df.iloc[index]
 
+    # Vérifier si on doit afficher la bonne réponse (phase 4-sec post-réponse)
+    if st.session_state.showing_answer_for is not None:
+        showing_idx = st.session_state.showing_answer_for
+        elapsed_answer = int(time.time() - st.session_state.answer_display_start_time) if st.session_state.answer_display_start_time else 0
+        
+        showing_row = quiz_df.iloc[showing_idx]
+        st.subheader(f"Question {showing_idx + 1} / {len(quiz_df)}")
+        st.markdown(f"<div class='question-text'>{showing_row['question']}</div>", unsafe_allow_html=True)
+        
+        correct_texts = get_correct_texts(showing_row)
+        st.success(f"✓ Bonne réponse: {', '.join(correct_texts)}")
+        st.info(f"Passage à la question suivante dans {max(0, 4 - elapsed_answer)} secondes...")
+        
+        # Si 4 secondes sont écoulées, passer à la question suivante
+        if elapsed_answer >= 4:
+            st.session_state.showing_answer_for = None
+            st.session_state.answer_display_start_time = None
+            next_question(len(quiz_df))
+        
+        return
+
     if index not in st.session_state.shuffled_options:
         options = [
             row["option_a"],
@@ -691,13 +714,14 @@ def main():
     if len(selected) > 2:
         st.warning("Vous pouvez cocher au maximum 2 réponses.")
 
-    # Si le temps est ecoule, on attribue une reponse aleatoire et on passe
-    # directement a la question suivante.
+    # Si le temps est ecoule, on attribue une reponse aleatoire et on affiche la bonne reponse
     if remaining == 0 and index not in st.session_state.answers:
         random_choice = random.choice(options)
         st.session_state.answers[index] = [random_choice]
         st.session_state.auto_assigned.append(index + 1)
-        next_question(len(quiz_df))
+        st.session_state.showing_answer_for = index
+        st.session_state.answer_display_start_time = time.time()
+        st.rerun()
 
     if st.button("Valider la reponse", key=f"validate_{index}"):
         if not selected:
@@ -706,7 +730,9 @@ def main():
             st.warning("Selectionnez au maximum 2 reponses avant de valider.")
         else:
             st.session_state.answers[index] = selected
-            next_question(len(quiz_df))
+            st.session_state.showing_answer_for = index
+            st.session_state.answer_display_start_time = time.time()
+            st.rerun()
 
 if __name__ == "__main__":
     main()
