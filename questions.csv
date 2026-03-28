@@ -1,4 +1,4 @@
-question,categorie,difficulté,option_a,option_b,option_c,option_d,option_e,correct_option
+question,categorie,difficulte,option_a,option_b,option_c,option_d,option_e,correct_option
 À quoi sert la centralité d'intermédiarité dans un réseau ?,analyse de réseaux,intermédiaire,À identifier les nœuds jouant un rôle de passage clé entre groupes,À mesurer la variance des liens,À vérifier la normalité,À estimer la proportion,À calculer la moyenne des poids,A
 Quel algorithme trouve le chemin le plus court dans un graphe pondéré ?,analyse de réseaux,intermédiaire,Dijkstra,Kruskal,Prim,PageRank,Louvain,A
 "Dans un réseau, que mesure le coefficient de clustering ?",analyse de réseaux,intermédiaire,Le degré de regroupement local des nœuds,La variance des liens,La normalité des poids,La moyenne des cycles,La dispersion des degrés,A
