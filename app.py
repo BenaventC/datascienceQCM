@@ -382,15 +382,15 @@ def main():
     if "answer_display_start_time" not in st.session_state:
         st.session_state.answer_display_start_time = None
 
-    st.title("Data Sciences Knowledge Test (DSKT)")
+    st.title("Data Sciences Knowledge Test")
     st.markdown(
         """
         <div style="margin-top: -0.35rem; margin-bottom: 1rem;">
             <p style="font-size: 1.1rem; margin-bottom: 0.2rem;">
-                Répondez aux questions suivantes pour tester vos connaissances.
+                Ce test de connaissance en data sciences s'appuie sur une base de 535 questions tirées aléatoirement.
             </p>
             <p style="font-size: 1rem; color: #555; margin: 0;">
-                Ceci est une expérimentation d'un test général de connaissances dans les champs des data sciences.
+                Ceci est une expérimentation. La base de questions est en cours de curation.
             </p>
         </div>
         """,
@@ -585,10 +585,10 @@ def main():
             f"""
             <div class="attention-box">
                 Attention: vous aurez {selected_time_limit} secondes par question pour le niveau {selected_level}.
-                Si vous ne validez pas votre reponse a temps,
-                la machine choisira aleatoirement a votre place. Vous pouvez selectionner 1 ou 2 reponses.
+                Si vous ne validez pas votre réponse à temps,
+                la machine choisira aléatoirement a votre place. Vous pouvez sélectionner 1 ou 2 réponses.
                 Le test contient {TOTAL_QUESTION_COUNT} questions au total,
-                incluant 1 question d'echauffement fixe et {RANDOM_QUESTION_COUNT} questions tirees au sort.
+                incluant une question d'échauffement fixe et {RANDOM_QUESTION_COUNT} questions tirées au sort.
             </div>
             """,
             unsafe_allow_html=True,
