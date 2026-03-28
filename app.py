@@ -682,7 +682,7 @@ def main():
     index = st.session_state.current_question
     row = quiz_df.iloc[index]
 
-    # Vérifier si on doit afficher la bonne réponse (phase 4-sec post-réponse)
+    # Vérifier si on doit afficher la bonne réponse (phase 3-sec post-réponse)
     if st.session_state.showing_answer_for is not None:
         showing_idx = st.session_state.showing_answer_for
         elapsed_answer = int(time.time() - st.session_state.answer_display_start_time) if st.session_state.answer_display_start_time else 0
@@ -692,11 +692,10 @@ def main():
         st.markdown(f"<div class='question-text'>{showing_row['question']}</div>", unsafe_allow_html=True)
         
         correct_texts = get_correct_texts(showing_row)
-        st.success(f"✓ Bonne réponse: {', '.join(correct_texts)}")
-        st.info(f"Passage à la question suivante dans {max(0, 4 - elapsed_answer)} secondes...")
+        st.markdown(f"<div style='color: #155724; background-color: #d4edda; padding: 1rem; border-radius: 0.5rem; font-weight: bold;'>✓ Bonne réponse: {', '.join(correct_texts)}</div>", unsafe_allow_html=True)
         
-        # Si 4 secondes sont écoulées, passer à la question suivante
-        if elapsed_answer >= 4:
+        # Si 3 secondes sont écoulées, passer à la question suivante
+        if elapsed_answer >= 3:
             st.session_state.showing_answer_for = None
             st.session_state.answer_display_start_time = None
             next_question(len(quiz_df))
