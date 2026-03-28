@@ -694,8 +694,8 @@ def main():
         correct_texts = get_correct_texts(showing_row)
         st.markdown(f"<div style='color: #155724; background-color: #d4edda; padding: 1rem; border-radius: 0.5rem; font-weight: bold;'>✓ Bonne réponse: {', '.join(correct_texts)}</div>", unsafe_allow_html=True)
         
-        # Si 3 secondes sont écoulées, passer à la question suivante
-        if elapsed_answer >= 3:
+        # Si 2 secondes sont écoulées, passer à la question suivante
+        if elapsed_answer >= 2:
             st.session_state.showing_answer_for = None
             st.session_state.answer_display_start_time = None
             next_question(len(quiz_df))
