@@ -4,6 +4,7 @@ import os
 import random
 import re
 import time
+import unicodedata
 from datetime import datetime
 from uuid import uuid4
 import gspread
@@ -36,6 +37,14 @@ TIME_LIMIT_BY_LEVEL = {
     "intermediaire": 16,
     "avancé": 12,
     "avance": 12,
+}
+EASY_ALLOWED_CATEGORIES = {
+    "analyse des donnees multivariee",
+    "statistiques",
+    "gestion de base de donnees",
+    "probabilite",
+    "probabilites",
+    "econometrie",
 }
 WARMUP_QUESTION = {
     "question": "Qu'est-ce qu'une moyenne ?",
@@ -262,6 +271,13 @@ def normalize_difficulty(value):
     return str(value).strip().lower()
 
 
+def normalize_text(value):
+    text = str(value).strip().lower()
+    text = unicodedata.normalize("NFKD", text)
+    text = "".join(ch for ch in text if not unicodedata.combining(ch))
+    return re.sub(r"\s+", " ", text)
+
+
 def get_time_limit_for_level(level):
     return TIME_LIMIT_BY_LEVEL.get(normalize_difficulty(level), 16)
 
@@ -290,7 +306,18 @@ def filter_questions_by_level(df, selected_level):
         rank = DIFFICULTY_RANK.get(normalize_difficulty(level))
         return rank in allowed_ranks
 
-    return df[df["difficulte"].apply(is_eligible)]
+    filtered_df = df[df["difficulte"].apply(is_eligible)]
+
+    # En niveau facile, on limite l'echantillonnage a des categories precises.
+    if normalized_selected == "facile":
+        return filtered_df[
+            filtered_df["categorie"].apply(
+                lambda category: normalize_text(category) in EASY_ALLOWED_CATEGORIES
+            )
+        ]
+
+    # Pour intermediaire/avance, toutes les categories restent disponibles.
+    return filtered_df
 
 
 def build_quiz_dataframe(eligible_df):
