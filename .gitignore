@@ -6,3 +6,4 @@ __pycache__/
 examen_resultat.csv
 *service-account*.json
 *credentials*.json
+qcm*.json

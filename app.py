@@ -5,6 +5,9 @@ import random
 import re
 import time
 from datetime import datetime
+from uuid import uuid4
+import gspread
+from google.oauth2.service_account import Credentials
 
 try:
     from streamlit_autorefresh import st_autorefresh
@@ -24,6 +27,13 @@ DIFFICULTY_RANK = {
     "avancé": 3,
     "avance": 3,
 }
+TIME_LIMIT_BY_LEVEL = {
+    "facile": 20,
+    "intermédiaire": 16,
+    "intermediaire": 16,
+    "avancé": 12,
+    "avance": 12,
+}
 WARMUP_QUESTION = {
     "question": "Qu'est-ce qu'une moyenne ?",
     "categorie": "statistiques",
@@ -36,6 +46,68 @@ WARMUP_QUESTION = {
     "correct_option": "A",
 }
 
+# --- Connexion à Google Sheets avec gspread ---
+SPREADSHEET_NAME_DEFAULT = "DSKT_Results"
+SCOPES = [
+    'https://www.googleapis.com/auth/spreadsheets',
+    'https://www.googleapis.com/auth/drive'
+]
+GSHEET_MAX_RETRIES = 3
+GSHEET_RETRY_DELAY_SECONDS = 2
+
+def get_gsheet_worksheet():
+    creds = None
+
+    # Priorité 1: Streamlit secrets (idéal pour Streamlit Cloud)
+    try:
+        service_account_info = st.secrets.get("gcp_service_account")
+        if service_account_info:
+            creds = Credentials.from_service_account_info(dict(service_account_info), scopes=SCOPES)
+    except Exception:
+        pass
+
+    # Priorité 2: chemin vers JSON via variable d'environnement / .env
+    if creds is None:
+        service_account_file = get_config_value("GOOGLE_SERVICE_ACCOUNT_FILE", "").strip()
+        if service_account_file and os.path.exists(service_account_file):
+            creds = Credentials.from_service_account_file(service_account_file, scopes=SCOPES)
+
+    if creds is None:
+        raise ValueError(
+            "Configuration Google Sheets manquante. Définissez st.secrets['gcp_service_account'] "
+            "ou GOOGLE_SERVICE_ACCOUNT_FILE."
+        )
+
+    spreadsheet_name = get_config_value("GOOGLE_SHEET_NAME", SPREADSHEET_NAME_DEFAULT).strip() or SPREADSHEET_NAME_DEFAULT
+
+    client = gspread.authorize(creds)
+    sheet = client.open(spreadsheet_name)
+    worksheet = sheet.sheet1  # ou .worksheet('Nom de l'onglet')
+    return worksheet
+
+def envoyer_donnees_google_sheet(donnees):
+    worksheet = get_gsheet_worksheet()
+    # Ajoute la date/heure si elle n'est pas déjà dans la liste.
+    if len(donnees) < 7:
+        donnees = list(donnees) + [datetime.now().strftime("%Y-%m-%d %H:%M:%S")]
+    # Ajoute un UUID unique si absent.
+    if len(donnees) < 8:
+        donnees = list(donnees) + [str(uuid4())]
+    last_error = None
+    for attempt in range(1, GSHEET_MAX_RETRIES + 1):
+        try:
+            worksheet.append_row(donnees)  # donnees = liste Python
+            return
+        except Exception as e:
+            last_error = e
+            # Retry ciblé en cas de quota (429)
+            if "429" in str(e) and attempt < GSHEET_MAX_RETRIES:
+                time.sleep(GSHEET_RETRY_DELAY_SECONDS * attempt)
+                continue
+            raise
+
+    if last_error is not None:
+        raise last_error
 
 def get_config_value(key, default=""):
     value = os.getenv(key)
@@ -78,13 +150,15 @@ def save_result(name, email, score, total):
     results_file = get_results_file_path()
     success_rate = round((score / total) * 100, 2) if total else 0.0
     date_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    submission_uuid = str(uuid4())
     new_result = pd.DataFrame([{
         "Nom": name,
         "Email": email,
         "Score": score,
         "Total": total,
         "Taux_reussite_%": success_rate,
-        "Date": date_str
+        "Date": date_str,
+        "UUID": submission_uuid,
     }])
 
     if not os.path.exists(results_file):
@@ -98,16 +172,23 @@ def save_result(name, email, score, total):
         combined = pd.concat([existing, new_result], ignore_index=True, sort=False)
         combined.to_csv(results_file, index=False)
 
-    payload = {
-        "Nom": name,
-        "Email": email,
-        "Score": score,
-        "Total": total,
-        "Taux_reussite_%": success_rate,
-        "Date": date_str,
-    }
+    # Envoi vers Google Sheets (sans lecture préalable pour éviter les quotas de lecture)
+    try:
+        categorie = st.session_state.get("selected_level", "")
+        envoyer_donnees_google_sheet([
+            name,
+            email,
+            score,
+            total,
+            success_rate,
+            categorie,
+            date_str,
+            submission_uuid,
+        ])
+    except Exception as e:
+        print(f"Erreur lors de l'envoi vers Google Sheets : {e}")
 
-    local_msg = f"Vos resultats ont ete enregistres dans '{results_file}'."
+    local_msg = "Enregistré."
     return local_msg
 
 
@@ -146,6 +227,10 @@ def validate_correct_options(df):
 
 def normalize_difficulty(value):
     return str(value).strip().lower()
+
+
+def get_time_limit_for_level(level):
+    return TIME_LIMIT_BY_LEVEL.get(normalize_difficulty(level), 16)
 
 
 def validate_difficulty_values(df):
@@ -190,10 +275,12 @@ def reset_quiz_state():
     st.session_state.shuffled_options = {}
     st.session_state.auto_assigned = []
     st.session_state.result_saved = False
-    st.session_state.selected_level = "intermédiaire"
+    st.session_state.selected_level = "facile"
     st.session_state.quiz_df = None
 
 def main():
+    # --- Bouton de test Google Sheets supprimé ---
+
     st.title("Data Sciences Knowledge Test (DSKT)")
     st.markdown(
         """
@@ -211,30 +298,61 @@ def main():
     st.markdown(
         """
         <style>
+            :root {
+                --color-primary: #e8a87c;
+                --color-primary-hover: #df9564;
+                --color-secondary: #8ea6c9;
+                --color-success: #8bbf9f;
+                --color-warning-bg: #fff7e8;
+                --color-warning-text: #b7844d;
+                --color-error-bg: #fdeff1;
+                --color-error-text: #c27a84;
+                --color-bg: #fffdfb;
+                --color-surface: #ffffff;
+                --color-text: #5b4b46;
+                --color-text-muted: #9a8e89;
+                --color-border: #f0e6df;
+            }
+
+            .stApp {
+                background: linear-gradient(180deg, #fffdfb 0%, #fff7f2 100%);
+                color: var(--color-text);
+            }
+
+            [data-testid="stHeader"] {
+                background: transparent;
+            }
+
+            [data-testid="stSidebar"] {
+                background-color: var(--color-surface);
+                border-right: 1px solid var(--color-border);
+            }
+
             .stButton > button[kind="primary"] {
-                background-color: #f28c28;
-                border-color: #f28c28;
+                background-color: var(--color-primary);
+                border-color: var(--color-primary);
                 color: white;
                 font-weight: 600;
+                border-radius: 10px;
             }
             .stButton > button[kind="primary"]:hover {
-                background-color: #e67e22;
-                border-color: #e67e22;
+                background-color: var(--color-primary-hover);
+                border-color: var(--color-primary-hover);
                 color: white;
             }
             .attention-box {
-                background: #f8d7da;
-                border-left: 6px solid #e5989b;
-                color: #6d3b3f;
+                background: var(--color-warning-bg);
+                border-left: 6px solid var(--color-warning-text);
+                color: var(--color-warning-text);
                 padding: 0.75rem 0.9rem;
                 border-radius: 0.35rem;
                 margin: 0.45rem 0 0.6rem 0;
                 font-size: 0.98rem;
             }
             .timer-box {
-                background: #f6c5cc;
-                border-left: 6px solid #e5989b;
-                color: #6a2e36;
+                background: #eef8f1;
+                border-left: 6px solid var(--color-success);
+                color: #5d8a6d;
                 padding: 0.62rem 0.85rem;
                 border-radius: 0.35rem;
                 margin: 0.45rem 0 0.75rem 0;
@@ -245,9 +363,41 @@ def main():
                 font-weight: 600;
                 line-height: 1.5;
                 margin-bottom: 0.35rem;
+                color: var(--color-text);
             }
             div[data-testid="stCheckbox"] label p {
                 font-size: 1.08rem;
+                color: var(--color-text);
+            }
+            .stCaption {
+                color: var(--color-text-muted);
+            }
+
+            /* Champs de saisie: fond clair + texte noir */
+            .stTextInput input,
+            .stTextArea textarea,
+            .stNumberInput input,
+            [data-testid="stTextInputRootElement"] input,
+            [data-testid="stNumberInput"] input {
+                background-color: #ffffff !important;
+                color: #000000 !important;
+                border: 1px solid var(--color-border) !important;
+            }
+
+            .stTextInput input::placeholder,
+            .stTextArea textarea::placeholder,
+            .stNumberInput input::placeholder {
+                color: #6b7280 !important;
+                opacity: 1;
+            }
+
+            .stTextInput input:focus,
+            .stTextArea textarea:focus,
+            .stNumberInput input:focus {
+                background-color: #ffffff !important;
+                color: #000000 !important;
+                border-color: var(--color-primary) !important;
+                box-shadow: 0 0 0 1px var(--color-primary) !important;
             }
         </style>
         """,
@@ -297,12 +447,15 @@ def main():
         return
 
     # Formulaire d'identification
+    st.markdown("**Votre nom**")
     user_name = st.text_input("Entrez votre nom complet :")
+    st.markdown("**Votre mail**")
     user_email = st.text_input("Entrez votre adresse email (optionnel) :")
-    is_email_ok = is_valid_dauphine_email(user_email)
-
-    if user_email and not is_email_ok:
-        st.warning("Adresse email invalide (format attendu: nom@domaine.ext)")
+    is_email_ok = True
+    if user_email:
+        is_email_ok = is_valid_dauphine_email(user_email)
+        if not is_email_ok:
+            st.warning("Adresse email invalide (format attendu: nom@domaine.ext)")
 
     if "quiz_started" not in st.session_state:
         st.session_state.quiz_started = False
@@ -315,21 +468,23 @@ def main():
         st.session_state.shuffled_options = {}
         st.session_state.auto_assigned = []
         st.session_state.result_saved = False
-        st.session_state.selected_level = "intermédiaire"
+        st.session_state.selected_level = "facile"
         st.session_state.quiz_df = None
 
     if not st.session_state.quiz_started:
         selected_level = st.selectbox(
             "Choisissez votre niveau d'évaluation :",
             ["facile", "intermédiaire", "avancé"],
-            index=1,
+            index=0,
         )
+        selected_time_limit = get_time_limit_for_level(selected_level)
         eligible_count = len(filter_questions_by_level(df, selected_level))
 
         st.markdown(
-            """
+            f"""
             <div class="attention-box">
-                Attention: vous aurez 15 secondes par question. Si vous ne validez pas votre reponse a temps,
+                Attention: vous aurez {selected_time_limit} secondes par question pour le niveau {selected_level}.
+                Si vous ne validez pas votre reponse a temps,
                 la machine choisira aleatoirement a votre place. Vous pouvez selectionner 1 ou 2 reponses.
                 Le test contient 20 questions tirees au sort selon votre niveau,
                 plus 1 question d'echauffement fixe.
@@ -384,10 +539,6 @@ def main():
 
     quiz_df = st.session_state.quiz_df if st.session_state.quiz_df is not None else df
 
-    # Auto-refresh stable (sans rechargement navigateur) pour piloter timer et transitions.
-    if st_autorefresh is not None:
-        st_autorefresh(interval=1000, key="quiz_autorefresh")
-
     if st.session_state.quiz_finished:
         score = 0.0
         total_points = len(quiz_df)
@@ -395,8 +546,31 @@ def main():
             correct_texts = get_correct_texts(row)
             selected_texts = st.session_state.answers.get(index, [])
             if correct_texts:
-                # 1 bonne réponse -> 1 point; 2 bonnes réponses -> 0.5 point chacune.
-                score += len(set(selected_texts) & set(correct_texts)) / len(correct_texts)
+                if len(correct_texts) == 2:
+                    # Deux bonnes réponses possibles
+                    if len(selected_texts) == 2:
+                        if set(selected_texts) == set(correct_texts):
+                            score += 1.5
+                        elif (selected_texts[0] in correct_texts and selected_texts[1] in correct_texts):
+                            # Cas rare, mais déjà couvert par le set equality
+                            score += 1.5
+                        elif (selected_texts[0] in correct_texts or selected_texts[1] in correct_texts):
+                            score += 0.5
+                        else:
+                            score += 0.0
+                    elif len(selected_texts) == 1:
+                        if selected_texts[0] in correct_texts:
+                            score += 0.5
+                        else:
+                            score += 0.0
+                    else:
+                        score += 0.0
+                else:
+                    # Une seule bonne réponse
+                    if len(selected_texts) == 1 and selected_texts[0] in correct_texts:
+                        score += 1.0
+                    else:
+                        score += 0.0
 
         normalized_score = (score / total_points) * 100 if total_points else 0.0
         st.success(f"Termine ! Score normalise: {normalized_score:.2f}%")
@@ -407,20 +581,25 @@ def main():
                 f"{len(st.session_state.auto_assigned)}"
             )
 
+        # Verrou optimiste: on marque d'abord comme sauvegardé pour éviter les doublons en cas de rerun.
         if not st.session_state.result_saved:
+            st.session_state.result_saved = True
             local_msg = save_result(
                 st.session_state.candidate_name,
                 st.session_state.candidate_email,
                 score,
                 total_points,
             )
-            st.session_state.result_saved = True
             st.info(local_msg)
 
         if st.button("Recommencer le test", type="primary", use_container_width=True):
             reset_quiz_state()
             st.rerun()
         return
+
+    # Auto-refresh uniquement pendant le quiz (évite des reruns inutiles sur l'écran final).
+    if st_autorefresh is not None:
+        st_autorefresh(interval=1000, key="quiz_autorefresh")
 
     index = st.session_state.current_question
     row = quiz_df.iloc[index]
@@ -438,8 +617,9 @@ def main():
 
     options = st.session_state.shuffled_options[index]
 
+    current_time_limit = get_time_limit_for_level(st.session_state.selected_level)
     elapsed = int(time.time() - st.session_state.question_start_ts)
-    remaining = max(0, 15 - elapsed)
+    remaining = max(0, current_time_limit - elapsed)
 
     st.subheader(f"Question {index + 1} / {len(quiz_df)}")
     st.caption(
