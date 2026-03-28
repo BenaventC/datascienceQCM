@@ -33,7 +33,7 @@ DIFFICULTY_RANK = {
     "avance": 3,
 }
 TIME_LIMIT_BY_LEVEL = {
-    "facile": 20,
+    "facile": 17,
     "intermédiaire": 16,
     "intermediaire": 16,
     "avancé": 12,
