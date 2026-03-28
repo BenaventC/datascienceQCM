@@ -356,6 +356,32 @@ def reset_quiz_state():
 def main():
     # --- Bouton de test Google Sheets supprimé ---
 
+    # Initialisation des variables de session pour éviter les AttributeError
+    if "quiz_started" not in st.session_state:
+        st.session_state.quiz_started = False
+    if "quiz_finished" not in st.session_state:
+        st.session_state.quiz_finished = False
+    if "current_question" not in st.session_state:
+        st.session_state.current_question = 0
+    if "question_start_ts" not in st.session_state:
+        st.session_state.question_start_ts = None
+    if "answers" not in st.session_state:
+        st.session_state.answers = {}
+    if "shuffled_options" not in st.session_state:
+        st.session_state.shuffled_options = {}
+    if "auto_assigned" not in st.session_state:
+        st.session_state.auto_assigned = []
+    if "result_saved" not in st.session_state:
+        st.session_state.result_saved = False
+    if "selected_level" not in st.session_state:
+        st.session_state.selected_level = "facile"
+    if "quiz_df" not in st.session_state:
+        st.session_state.quiz_df = None
+    if "showing_answer_for" not in st.session_state:
+        st.session_state.showing_answer_for = None
+    if "answer_display_start_time" not in st.session_state:
+        st.session_state.answer_display_start_time = None
+
     st.title("Data Sciences Knowledge Test (DSKT)")
     st.markdown(
         """
