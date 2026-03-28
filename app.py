@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import os
 import random
 import re
@@ -321,7 +322,11 @@ def filter_questions_by_level(df, selected_level):
 
 
 def build_quiz_dataframe(eligible_df):
-    sampled_df = eligible_df.sample(n=RANDOM_QUESTION_COUNT).reset_index(drop=True)
+    # Force un nouveau random state à chaque tirage pour garantir l'aléatoire.
+    # Cela évite que Streamlit gèle le random state global.
+    np.random.seed(None)
+    random.seed()
+    sampled_df = eligible_df.sample(n=RANDOM_QUESTION_COUNT, random_state=None).reset_index(drop=True)
     warmup_df = pd.DataFrame([WARMUP_QUESTION])
     return pd.concat([warmup_df, sampled_df], ignore_index=True)
 
